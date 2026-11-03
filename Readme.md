@@ -90,7 +90,7 @@ The image contains the conda environment and the code. Its entry point is
 `run_pipeline.py`, so the subcommand and options go straight after the image name.
 GitHub Actions (`.github/workflows/docker.yml`) builds it on every push to `main`,
 runs the tests in it, and publishes it as
-`ghcr.io/lukas-scharf-plus/compass_dolphin_claude` with the tags `latest` and
+`ghcr.io/lukas-scharf-plus/compass-dolphin` with the tags `latest` and
 `sha-<commit>`. A git tag like `v1.0.0` also publishes `1.0.0`. To build it yourself:
 
 ```bash
@@ -104,7 +104,7 @@ config folders and point the configs at the mounted paths:
 docker run --rm \
   --user "$(id -u):$(id -g)" \
   -v ~/projects/ADUCAT/data:/work \
-  ghcr.io/lukas-scharf-plus/compass_dolphin_claude:latest \
+  ghcr.io/lukas-scharf-plus/compass-dolphin:latest \
   all --compass-config /work/config/compass.yaml --dolphin-config /work/config/dolphin.yaml
 ```
 
