@@ -1,0 +1,13 @@
+# Files Docker leaves out of the build context. The Dockerfile copies only what
+# it needs, but a small context makes builds faster and keeps local files out.
+.git/
+.github/
+.claude/
+.idea/
+.vscode/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.env
+*.key
+*.pem

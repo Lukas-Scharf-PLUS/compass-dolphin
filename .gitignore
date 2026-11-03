@@ -1,0 +1,23 @@
+# Python caches and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Data and processing output (large; kept outside the repository)
+*.h5
+*.tif
+*.SAFE/
+*.EOF
+*.sqlite3
+
+# Editor / IDE settings
+.idea/
+.vscode/
+
+# Local Claude Code settings (machine-specific)
+.claude/
+
+# Secrets
+.env
+*.key
+*.pem

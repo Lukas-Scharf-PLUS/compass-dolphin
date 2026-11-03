@@ -1,0 +1,69 @@
+# Conda environment for the Vienna COMPASS + dolphin InSAR pipeline.
+#
+# Create it with:  mamba env create -f environment.yaml
+#
+# The compiled geospatial libraries come from conda-forge. Packages whose
+# requested version is not on conda-forge are installed with pip at the end.
+name: compass-dolphin
+channels:
+  - conda-forge
+dependencies:
+  # Newest set that works with official COMPASS 0.5.7, which limits everything:
+  # - numpy 1.x, because COMPASS uses np.string_, which numpy 2 removed.
+  # - scipy<1.13, because COMPASS needs it for its ionosphere code.
+  # - isce3 0.25.8, the newest build that fits numpy 1.x and rasterio 1.4.
+  #   It gave pixel-identical GSLCs and static layers to isce3 0.25.22.
+  - python=3.12
+  - isce3=0.25.8=*cpu*
+  - gdal=3.12
+  - proj=9.7
+  - libgdal-netcdf
+  - libgdal-hdf5
+  - numpy=1.26
+  - scipy=1.12
+  - h5py>=3.6
+  - hdf5!=1.12.2  # Known file-reading bug, excluded by dolphin.
+
+  # Required by COMPASS.
+  - lxml
+  - pandas>=1.4
+  - pillow>=7.0
+  - pysolid>=0.3
+  - requests>=2.0
+  - scikit-image
+  - shapely>=1.8
+  - yamale>=4.0
+
+  # Required by dolphin.
+  - jax>=0.4.19
+  - ml_dtypes<0.6  # Version 0.6 declares numpy>=2 to pip, which would replace numpy.
+  - numba>=0.56
+  - pydantic>=2.1
+  - pyproj>=3.3
+  - rasterio=1.4  # Version 1.5 declares numpy>=2 to pip, which would replace it.
+  - rich  # Imported by opera-utils, which does not declare it.
+  - ruamel.yaml>=0.15
+  - threadpoolctl>=3.0
+  - tqdm>=4.60
+  - typing_extensions>=3.10
+  - tyro>=0.9.20
+
+  # Tests for this project.
+  - pytest
+  - pyyaml  # Reads the pipeline config. COMPASS needs it too.
+
+  # Tools for the pip installs below. dolphin takes its version from git tags.
+  - git
+  - pip
+
+  - pip:
+      # Repeated so that pip fails instead of silently replacing conda's versions.
+      - numpy==1.26.*
+      - scipy==1.12.*
+      - s1reader @ https://github.com/opera-adt/s1-reader/archive/refs/tags/v0.2.6.tar.gz
+      - compass @ git+https://github.com/opera-adt/COMPASS.git@v0.5.7
+      # Five commits after v0.42.8, for its phase linking bug fixes.
+      - dolphin @ git+https://github.com/isce-framework/dolphin.git@1bd5ed6b59af18b842ac82ce3783ed5c94d1a63f
+      # Installs the Python module "whirlwind". The PyPI package named
+      # "whirlwind" is unrelated, so do not install that one.
+      - whirlwind-insar==0.10.0

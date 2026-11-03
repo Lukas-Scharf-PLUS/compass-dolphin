@@ -1,0 +1,27 @@
+# COMPASS config for Vienna: inputs, bursts and geocoding settings.
+# All inputs must already exist: the pipeline does not download anything.
+
+inputs:
+  slc_dir: ~/projects/ADUCAT/data/input_data/ASC_073/SLC  # .SAFE directories or .zip files
+  orbit_dir: ~/projects/ADUCAT/data/input_data/ASC_073/orbits  # .EOF files, one for each SLC
+  dem_file: ~/projects/ADUCAT/data/input_data/DEM/cop_dem.tif
+  burst_db_file: ~/projects/ADUCAT/data/input_data/s1-burst-db/opera-burst-bbox-only.sqlite3
+
+# Everything is written here. GSLCs for dolphin go to <work_dir>/gslcs.
+work_dir: ~/projects/ADUCAT/data/COMPASS-dolphin-test/ASC_073
+
+# Bursts to process, all from one track. Use a separate config for each track.
+burst_ids:
+  - t073_154935_iw1
+  - t073_154935_iw2
+  # - t073_154936_iw1
+  # - t073_154936_iw2
+
+# Optional. These are the default values.
+geocoding:
+  x_posting_m: 5
+  y_posting_m: 10
+  common_bursts_only: true  # Drop bursts that are missing on any date.
+  generate_static_layers: true  # Layover/shadow masks and viewing geometry.
+  n_workers: 2  # Jobs running at the same time.
+  threads_per_worker: 4  # CPU threads per job.
