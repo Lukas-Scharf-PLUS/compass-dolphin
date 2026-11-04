@@ -17,6 +17,10 @@ burst_ids:
   # - t073_154936_iw1
   # - t073_154936_iw2
 
+# Satellites to process: all, or a list such as [S1A] or [S1C, S1D].
+# SLCs of other satellites in slc_dir are skipped (they still need orbit files).
+platforms: all
+
 # Optional. These are the default values.
 geocoding:
   x_posting_m: 5

@@ -21,6 +21,9 @@ from pydantic import (
 
 # Example burst ID: t073_154936_iw1 (track, burst number, subswath).
 BURST_ID_PATTERN = re.compile(r"t\d{3}_\d{6}_iw[123]")
+# Sentinel-1 satellites, as they appear at the start of an SLC name
+# (e.g. "S1C_IW_SLC__..."). By default all of them are processed.
+PLATFORMS = ("S1A", "S1B", "S1C", "S1D")
 
 
 def _absolute_path(path: str) -> Path:
@@ -91,7 +94,53 @@ class PipelineConfig(BaseModel, extra="forbid"):
     inputs: InputPaths
     work_dir: OutputDirectory
     burst_ids: list[str] = Field(min_length=1)
+    # Satellites whose SLCs are processed. SLCs of other satellites in slc_dir
+    # are skipped. Accepts "all", a list, or a string like "S1A S1C".
+    platforms: tuple[str, ...] = PLATFORMS
     geocoding: GeocodingOptions = GeocodingOptions()
+
+    @field_validator("platforms", mode="before")
+    @classmethod
+    def _parse_platforms(cls, value: str | list | None) -> tuple[str, ...]:
+        """Normalize the satellite selection.
+
+        Each entry may be written as ``S1A``, ``A``, ``s1a`` or ``sentinel-1a``.
+        An empty value or ``all`` selects every satellite.
+
+        Parameters
+        ----------
+        value : str, list or None
+            Satellites as written in the config file.
+
+        Returns
+        -------
+        tuple[str, ...]
+            Selected satellites in the order of ``PLATFORMS``, without duplicates.
+
+        Raises
+        ------
+        ValueError
+            If an entry is not a known Sentinel-1 satellite.
+        """
+        if value is None:
+            return PLATFORMS
+        entries = value.replace(",", " ").split() if isinstance(value, str) else value
+        names = [str(entry).strip().upper() for entry in entries]
+        if not names or names == ["ALL"]:
+            return PLATFORMS
+
+        selected = set()
+        for name in names:
+            # "SENTINEL-1A" -> "A", then "A" -> "S1A"
+            short_name = name.replace("SENTINEL-1", "")
+            platform = f"S1{short_name}" if len(short_name) == 1 else short_name
+            if platform not in PLATFORMS:
+                raise ValueError(
+                    f"Unknown satellite '{name}'. Use one or more of {PLATFORMS} "
+                    "(also written as A, B, C, D), or 'all'."
+                )
+            selected.add(platform)
+        return tuple(platform for platform in PLATFORMS if platform in selected)
 
     @field_validator("burst_ids")
     @classmethod

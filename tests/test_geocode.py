@@ -15,6 +15,8 @@ from pipeline.geocode import (
     build_static_layer_jobs,
     check_orbits_exist,
     check_requested_bursts_found,
+    drop_excluded_dates,
+    find_excluded_dates,
     find_generated_bursts,
     find_slc_inputs,
     run_geocoding,
@@ -104,6 +106,60 @@ def test_missing_orbit_stops_before_compass_can_download(tmp_path, monkeypatch):
     monkeypatch.setattr("pipeline.geocode.subprocess.run", fail_if_called)
     with pytest.raises(GeocodingError, match="No orbit file"):
         run_geocoding(config)
+
+
+S1C_SAFE_NAME = "S1C_IW_SLC__1SDV_20250608T164148_20250608T164215_002694_0058F8_5400.SAFE"
+
+
+def test_all_platforms_exclude_nothing(tmp_path):
+    slcs = [tmp_path / SAFE_NAME, tmp_path / S1C_SAFE_NAME]
+    assert find_excluded_dates(slcs, ("S1A", "S1B", "S1C", "S1D")) == set()
+
+
+def test_dates_of_not_selected_platforms_are_excluded(tmp_path, caplog):
+    slcs = [tmp_path / SAFE_NAME, tmp_path / S1C_SAFE_NAME]
+    with caplog.at_level(logging.INFO):
+        assert find_excluded_dates(slcs, ("S1A",)) == {"20250608"}
+    assert "1 S1C" in caplog.text
+
+
+def test_no_slc_of_selected_platform_fails(tmp_path):
+    with pytest.raises(GeocodingError, match="None of the 1 SLCs"):
+        find_excluded_dates([tmp_path / SAFE_NAME], ("S1C",))
+
+
+def test_same_date_from_two_platforms_fails(tmp_path):
+    other_platform = "S1C" + SAFE_NAME[3:]  # same date as SAFE_NAME
+    with pytest.raises(GeocodingError, match="20220101"):
+        find_excluded_dates([tmp_path / SAFE_NAME, tmp_path / other_platform], ("S1A",))
+
+
+def test_drop_excluded_dates_removes_their_jobs(tmp_path, caplog):
+    burst_id = "t073_154936_iw1"
+    for directory in ("run_files", "runconfigs"):
+        (tmp_path / directory).mkdir()
+    for date in ("20220101", "20220107"):
+        (tmp_path / "run_files" / f"run_{date}_{burst_id}.sh").touch()
+        (tmp_path / "runconfigs" / f"geo_runconfig_{date}_{burst_id}.yaml").touch()
+    # A GSLC of the excluded date left over from an earlier run
+    (tmp_path / burst_id / "20220107").mkdir(parents=True)
+    (tmp_path / burst_id / "20220107" / f"{burst_id}_20220107.h5").touch()
+
+    with caplog.at_level(logging.WARNING):
+        remaining = drop_excluded_dates(
+            tmp_path,
+            {burst_id: {"20220101", "20220107"}, "t073_154935_iw1": {"20220107"}},
+            {"20220107"},
+        )
+
+    assert remaining == {burst_id: {"20220101"}}
+    assert [p.name for p in (tmp_path / "run_files").iterdir()] == [
+        f"run_20220101_{burst_id}.sh"
+    ]
+    assert [p.name for p in (tmp_path / "runconfigs").iterdir()] == [
+        f"geo_runconfig_20220101_{burst_id}.yaml"
+    ]
+    assert "A dolphin-only run would use them" in caplog.text
 
 
 def test_find_generated_bursts_ignores_other_files(tmp_path):

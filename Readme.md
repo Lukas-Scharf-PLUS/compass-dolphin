@@ -124,6 +124,7 @@ separate `aducat_argo` repository.
 | `inputs.burst_db_file` | OPERA burst database (`.sqlite3`) |
 | `work_dir` | Where COMPASS output is written |
 | `burst_ids` | Bursts to process, for example `t073_154936_iw1`, from one track only |
+| `platforms` | Satellites whose SLCs are processed: `all` (default) or a list such as `[S1A]` or `[S1C, S1D]` (also `A`, `c`, `sentinel-1a`). SLCs of other satellites in `slc_dir` are skipped. |
 | `geocoding.x_posting_m`, `y_posting_m` | Output pixel spacing in meters (default 5 and 10) |
 | `geocoding.common_bursts_only` | Drop bursts missing on any date, with a warning (default true) |
 | `geocoding.generate_static_layers` | Also create one static layer file per burst (default true) |
@@ -149,11 +150,19 @@ away and not after hours of COMPASS processing.
    `s1_geocode_stack.py` would otherwise download missing orbits on its own.
 2. `s1_geocode_stack.py` writes one runconfig and run file per burst and date. Old
    runconfigs and run files are replaced on every run.
-3. A requested burst that is in none of the SLCs is an error.
-4. COMPASS runs in parallel with one log file per job. A `.done` file is written only
+3. If `platforms` does not include every satellite, the jobs of dates from other
+   satellites are deleted. `s1_geocode_stack.py` always reads every SLC in `slc_dir`
+   (so these SLCs still need orbit files), and its own `--exclude-dates` option does
+   not work in the installed COMPASS version (it compares `date` methods instead of
+   dates). On one track two satellites never acquire on the same date, so the date
+   identifies the satellite; a date with SLCs from both a selected and a skipped
+   satellite is an error. GSLCs of skipped dates from an earlier run in the same
+   `work_dir` are reported, because a dolphin-only run would use them.
+4. A requested burst that is in none of the (selected) SLCs is an error.
+5. COMPASS runs in parallel with one log file per job. A `.done` file is written only
    after a job succeeds. COMPASS can leave a full-size `.h5` behind when it crashes,
    so an existing `.h5` alone does not count as finished.
-5. After full success, the temporary `gslcs/scratch` directory is deleted.
+6. After full success, the temporary `gslcs/scratch` directory is deleted.
 
 **Dolphin stage** (`pipeline/displacement.py`):
 

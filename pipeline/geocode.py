@@ -4,7 +4,8 @@ The stage has four steps:
 1. Check that all inputs exist, so COMPASS never tries to download an orbit.
 2. Call ``s1_geocode_stack.py`` to generate one runconfig and run file per
    burst and date.
-3. Check the generated jobs against the requested bursts.
+3. Check the generated jobs against the requested bursts, and remove the jobs
+   of dates from satellites that are not selected (``platforms``).
 4. Run the jobs in parallel. Finished jobs are skipped when restarting.
 
 Output layout, read by dolphin later::
@@ -34,6 +35,8 @@ logger = logging.getLogger(__name__)
 RUN_FILE_PATTERN = re.compile(r"run_(?P<date>\d{8})_(?P<burst_id>t\d{3}_\d{6}_iw[123])")
 STATIC_LAYERS_PRODUCT_TYPE = "CSLC_S1_STATIC"
 SLC_NAME_PATTERN = "S1[ABCDE]_*"
+# Acquisition start in an SLC name, e.g. "_20250109T164310_" -> "20250109".
+SLC_DATE_PATTERN = re.compile(r"_(\d{8})T\d{6}_")
 ORBIT_NAME_PATTERN = "S1*.EOF"
 LOG_TAIL_LINES = 20
 
@@ -127,6 +130,128 @@ def find_slc_inputs(slc_dir: Path) -> tuple[list[Path], bool]:
     if zip_files:
         return zip_files, False
     raise GeocodingError(f"No Sentinel-1 .SAFE or .zip SLCs found in {slc_dir}.")
+
+
+def _slc_date(slc: Path) -> str:
+    """Return the acquisition date of an SLC from its name.
+
+    Parameters
+    ----------
+    slc : Path
+        SLC ``.SAFE`` directory or ``.zip`` file.
+
+    Returns
+    -------
+    str
+        The date as YYYYMMDD.
+
+    Raises
+    ------
+    GeocodingError
+        If the name contains no acquisition time.
+    """
+    match = SLC_DATE_PATTERN.search(slc.name)
+    if match is None:
+        raise GeocodingError(f"Cannot read the acquisition date from {slc.name}.")
+    return match[1]
+
+
+def find_excluded_dates(slc_inputs: list[Path], platforms: tuple[str, ...]) -> set[str]:
+    """Find the dates whose SLCs all come from satellites that are not selected.
+
+    ``s1_geocode_stack.py`` always reads every SLC in the directory and names its
+    jobs by date, not by satellite. The jobs of these dates are removed after it
+    ran. On one track, two satellites never acquire on the same date, so a date
+    identifies the satellite.
+
+    Parameters
+    ----------
+    slc_inputs : list[Path]
+        SLC ``.SAFE`` directories or ``.zip`` files.
+    platforms : tuple[str, ...]
+        Selected satellites, e.g. ``("S1A", "S1C")``.
+
+    Returns
+    -------
+    set[str]
+        Dates (YYYYMMDD) to leave out. Empty if every SLC is selected.
+
+    Raises
+    ------
+    GeocodingError
+        If no SLC is from a selected satellite, or if one date has SLCs of a
+        selected and a not selected satellite (the jobs could not be told apart).
+    """
+    selected_dates: set[str] = set()
+    excluded_dates: set[str] = set()
+    skipped_count: dict[str, int] = {}
+    for slc in slc_inputs:
+        platform = slc.name[:3]
+        if platform in platforms:
+            selected_dates.add(_slc_date(slc))
+        else:
+            excluded_dates.add(_slc_date(slc))
+            skipped_count[platform] = skipped_count.get(platform, 0) + 1
+
+    if not selected_dates:
+        raise GeocodingError(
+            f"None of the {len(slc_inputs)} SLCs is from the selected satellites "
+            f"{list(platforms)}. Check 'platforms' in the config."
+        )
+    mixed_dates = sorted(selected_dates & excluded_dates)
+    if mixed_dates:
+        raise GeocodingError(
+            f"Dates {mixed_dates} have SLCs from a selected and a not selected "
+            "satellite, which cannot be separated. Move the unwanted SLCs out of "
+            "the SLC directory."
+        )
+
+    for platform, count in sorted(skipped_count.items()):
+        logger.info("Skipping %d %s SLCs (not in platforms).", count, platform)
+    return excluded_dates
+
+
+def drop_excluded_dates(
+    gslc_dir: Path, dates_by_burst: dict[str, set[str]], excluded_dates: set[str]
+) -> dict[str, set[str]]:
+    """Remove the generated jobs of excluded dates.
+
+    Parameters
+    ----------
+    gslc_dir : Path
+        The GSLC directory containing ``run_files`` and ``runconfigs``.
+    dates_by_burst : dict[str, set[str]]
+        Dates found for each burst.
+    excluded_dates : set[str]
+        Dates (YYYYMMDD) to remove.
+
+    Returns
+    -------
+    dict[str, set[str]]
+        The remaining dates for each burst. Bursts without dates are left out.
+    """
+    for date in sorted(excluded_dates):
+        for run_file in (gslc_dir / "run_files").glob(f"run_{date}_*.sh"):
+            run_file.unlink()
+        for runconfig in (gslc_dir / "runconfigs").glob(f"geo_runconfig_{date}_*.yaml"):
+            runconfig.unlink()
+
+    # GSLCs of these dates from an earlier run would still be read by a
+    # dolphin-only run (it uses every GSLC in the folder).
+    leftovers = sorted(
+        path for date in excluded_dates for path in gslc_dir.glob(f"*/{date}/*.h5")
+    )
+    if leftovers:
+        logger.warning(
+            "%d GSLC files from not selected satellites exist from an earlier run, "
+            "e.g. %s. A dolphin-only run would use them. Delete them or use a new "
+            "work_dir.",
+            len(leftovers),
+            leftovers[0],
+        )
+
+    remaining = {burst: dates - excluded_dates for burst, dates in dates_by_burst.items()}
+    return {burst: dates for burst, dates in remaining.items() if dates}
 
 
 def check_orbits_exist(slc_inputs: list[Path], orbit_dir: Path) -> None:
@@ -535,10 +660,17 @@ def run_geocoding(config: PipelineConfig) -> GeocodeResult:
     """
     slc_inputs, unzipped = find_slc_inputs(config.inputs.slc_dir)
     logger.info("Found %d SLCs in %s", len(slc_inputs), config.inputs.slc_dir)
+    excluded_dates = find_excluded_dates(slc_inputs, config.platforms)
+    # All SLCs need orbits, also the skipped ones: s1_geocode_stack.py reads
+    # every SLC in the directory and would otherwise download missing orbits.
     check_orbits_exist(slc_inputs, config.inputs.orbit_dir)
 
     generate_run_files(config, unzipped)
     dates_by_burst = find_generated_bursts(config.gslc_dir)
+    if excluded_dates:
+        dates_by_burst = drop_excluded_dates(
+            config.gslc_dir, dates_by_burst, excluded_dates
+        )
     check_requested_bursts_found(config.burst_ids, dates_by_burst)
 
     if config.geocoding.common_bursts_only:

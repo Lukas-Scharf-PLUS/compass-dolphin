@@ -71,6 +71,31 @@ def test_missing_input_path_is_rejected(tmp_path, config_values):
         _write_and_load(tmp_path, config_values)
 
 
+def test_platforms_default_to_all(tmp_path, config_values):
+    config = _write_and_load(tmp_path, config_values)
+    assert config.platforms == ("S1A", "S1B", "S1C", "S1D")
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("all", ("S1A", "S1B", "S1C", "S1D")),
+        ("S1A", ("S1A",)),
+        ("c, a", ("S1A", "S1C")),
+        (["sentinel-1c", "S1D", "S1C"], ("S1C", "S1D")),
+    ],
+)
+def test_platforms_are_normalized(tmp_path, config_values, value, expected):
+    config_values["platforms"] = value
+    assert _write_and_load(tmp_path, config_values).platforms == expected
+
+
+def test_unknown_platform_is_rejected(tmp_path, config_values):
+    config_values["platforms"] = ["S1A", "S2A"]
+    with pytest.raises(ValidationError, match="Unknown satellite 'S2A'"):
+        _write_and_load(tmp_path, config_values)
+
+
 def test_misspelled_option_is_rejected(tmp_path, config_values):
     config_values["geocoding"] = {"n_worker": 4}
     with pytest.raises(ValidationError, match="n_worker"):
